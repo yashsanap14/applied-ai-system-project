@@ -2,16 +2,11 @@
 
 ## Project Summary
 
-In this project you will build and explain a small music recommender system.
+This is **VibeCheck 1.0**, a small content-based music recommender.
 
-Your goal is to:
+You give it a taste profile — favorite genre, favorite mood, target energy, and whether you like acoustic sound — and it compares that against a 20-song catalog. Every song gets a score using a simple point system: genre match (+2.0), mood match (+1.0), energy closeness (up to +1.0), and an acoustic bonus (+0.5). It returns the top 5 highest-scoring songs, each with a plain-language list of reasons for why it scored what it did.
 
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-Replace this paragraph with your own summary of what your version does.
+I tested it against several taste profiles, including two deliberately contradictory ones, to see how it handles edge cases — and used those tests to find a real bias: songs in rare genres can outrank a much better energy match just by matching genre. The full writeup of the algorithm, evaluation, and limitations is in [`model_card.md`](model_card.md).
 
 ---
 
@@ -142,11 +137,146 @@ Chill lofi listener: {'genre': 'lofi', 'mood': 'chill', 'energy': 0.35, 'likes_a
 
 ## Experiments You Tried
 
-Use this section to document the experiments you ran. For example:
+### System Evaluation: Baseline & Edge Case Profiles
 
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+To evaluate whether the scoring logic behaves sensibly (and to try to "trick" it), I ran three baseline profiles plus two adversarial edge cases through `src/main.py`:
+
+- **High-Energy Pop**, **Chill Lofi**, **Deep Intense Rock** — baseline profiles with internally consistent preferences (genre, mood, and energy all pointing the same direction).
+- **Edge Case: Energetic but Sad** — pairs `mood: "sad"` (a mood that does not exist anywhere in the 20-song catalog) with a high target energy, to see if an unmatched mood breaks anything or just degrades gracefully.
+- **Edge Case: Acoustic Speed Paradox** — pairs `likes_acoustic: True` with `energy: 0.95`. In this catalog, energy and acousticness are almost perfectly inversely correlated (see the feature analysis earlier in this README), so no song can actually satisfy both preferences at once.
+
+```
+Loading songs from data/songs.csv...
+Loaded songs: 20
+
+============================================================
+High-Energy Pop: {'genre': 'pop', 'mood': 'happy', 'energy': 0.9, 'likes_acoustic': False}
+============================================================
+
+1. Sunrise City (by Neon Echo) - Score: 3.92
+     - genre match: pop (+2.0)
+     - mood match: happy (+1.0)
+     - energy similarity: 0.82 vs 0.9 (+0.92)
+
+2. Gym Hero (by Max Pulse) - Score: 2.97
+     - genre match: pop (+2.0)
+     - energy similarity: 0.93 vs 0.9 (+0.97)
+
+3. Rooftop Lights (by Indigo Parade) - Score: 1.86
+     - mood match: happy (+1.0)
+     - energy similarity: 0.76 vs 0.9 (+0.86)
+
+4. Storm Runner (by Voltline) - Score: 0.99
+     - energy similarity: 0.91 vs 0.9 (+0.99)
+
+5. Broken Rules (by Static Riot) - Score: 0.95
+     - energy similarity: 0.95 vs 0.9 (+0.95)
+
+============================================================
+Chill Lofi: {'genre': 'lofi', 'mood': 'chill', 'energy': 0.3, 'likes_acoustic': True}
+============================================================
+
+1. Library Rain (by Paper Lanterns) - Score: 4.45
+     - genre match: lofi (+2.0)
+     - mood match: chill (+1.0)
+     - energy similarity: 0.35 vs 0.3 (+0.95)
+     - acoustic bonus: acousticness 0.86 (+0.5)
+
+2. Midnight Coding (by LoRoom) - Score: 4.38
+     - genre match: lofi (+2.0)
+     - mood match: chill (+1.0)
+     - energy similarity: 0.42 vs 0.3 (+0.88)
+     - acoustic bonus: acousticness 0.71 (+0.5)
+
+3. Focus Flow (by LoRoom) - Score: 3.40
+     - genre match: lofi (+2.0)
+     - energy similarity: 0.4 vs 0.3 (+0.90)
+     - acoustic bonus: acousticness 0.78 (+0.5)
+
+4. Spacewalk Thoughts (by Orbit Bloom) - Score: 2.48
+     - mood match: chill (+1.0)
+     - energy similarity: 0.28 vs 0.3 (+0.98)
+     - acoustic bonus: acousticness 0.92 (+0.5)
+
+5. Old Porch Stories (by Willow Creek) - Score: 1.50
+     - energy similarity: 0.3 vs 0.3 (+1.00)
+     - acoustic bonus: acousticness 0.8 (+0.5)
+
+============================================================
+Deep Intense Rock: {'genre': 'rock', 'mood': 'intense', 'energy': 0.95, 'likes_acoustic': False}
+============================================================
+
+1. Storm Runner (by Voltline) - Score: 3.96
+     - genre match: rock (+2.0)
+     - mood match: intense (+1.0)
+     - energy similarity: 0.91 vs 0.95 (+0.96)
+
+2. Gym Hero (by Max Pulse) - Score: 1.98
+     - mood match: intense (+1.0)
+     - energy similarity: 0.93 vs 0.95 (+0.98)
+
+3. Broken Rules (by Static Riot) - Score: 1.00
+     - energy similarity: 0.95 vs 0.95 (+1.00)
+
+4. Iron Verdict (by Grave Circuit) - Score: 0.98
+     - energy similarity: 0.97 vs 0.95 (+0.98)
+
+5. City Lights Anthem (by Trace Motion) - Score: 0.90
+     - energy similarity: 0.85 vs 0.95 (+0.90)
+
+============================================================
+Edge Case: Energetic but Sad: {'genre': 'pop', 'mood': 'sad', 'energy': 0.9, 'likes_acoustic': False}
+============================================================
+
+1. Gym Hero (by Max Pulse) - Score: 2.97
+     - genre match: pop (+2.0)
+     - energy similarity: 0.93 vs 0.9 (+0.97)
+
+2. Sunrise City (by Neon Echo) - Score: 2.92
+     - genre match: pop (+2.0)
+     - energy similarity: 0.82 vs 0.9 (+0.92)
+
+3. Storm Runner (by Voltline) - Score: 0.99
+     - energy similarity: 0.91 vs 0.9 (+0.99)
+
+4. Broken Rules (by Static Riot) - Score: 0.95
+     - energy similarity: 0.95 vs 0.9 (+0.95)
+
+5. City Lights Anthem (by Trace Motion) - Score: 0.95
+     - energy similarity: 0.85 vs 0.9 (+0.95)
+
+============================================================
+Edge Case: Acoustic Speed Paradox: {'genre': 'folk', 'mood': 'chill', 'energy': 0.95, 'likes_acoustic': True}
+============================================================
+
+1. Old Porch Stories (by Willow Creek) - Score: 2.85
+     - genre match: folk (+2.0)
+     - energy similarity: 0.3 vs 0.95 (+0.35)
+     - acoustic bonus: acousticness 0.8 (+0.5)
+
+2. Midnight Coding (by LoRoom) - Score: 1.97
+     - mood match: chill (+1.0)
+     - energy similarity: 0.42 vs 0.95 (+0.47)
+     - acoustic bonus: acousticness 0.71 (+0.5)
+
+3. Library Rain (by Paper Lanterns) - Score: 1.90
+     - mood match: chill (+1.0)
+     - energy similarity: 0.35 vs 0.95 (+0.40)
+     - acoustic bonus: acousticness 0.86 (+0.5)
+
+4. Spacewalk Thoughts (by Orbit Bloom) - Score: 1.83
+     - mood match: chill (+1.0)
+     - energy similarity: 0.28 vs 0.95 (+0.33)
+     - acoustic bonus: acousticness 0.92 (+0.5)
+
+5. Broken Rules (by Static Riot) - Score: 1.00
+     - energy similarity: 0.95 vs 0.95 (+1.00)
+```
+
+**What broke / what surprised me:**
+
+- **"Energetic but Sad" degraded gracefully** — since no song has `mood: "sad"`, the mood term contributed 0 for every song and the system fell back to genre + energy, which is the intended behavior for an unmatched category. Nothing crashed, and the top results (`Gym Hero`, `Sunrise City`) are still reasonable "high energy pop" picks.
+- **"Acoustic Speed Paradox" exposed a real bias.** `Old Porch Stories` won at rank 1 with a *terrible* energy match (0.35 similarity — the song's actual energy is 0.3 against a 0.95 target) purely because its genre matched "folk." Meanwhile `Broken Rules`, which matches the requested energy almost exactly (0.95 vs 0.95, energy similarity +1.00), came in dead last because it doesn't happen to be folk, chill, or acoustic. This confirms the bias flagged earlier in "How The System Works": the genre weight (+2.0) can outweigh even a wildly mismatched numeric feature, so a user with contradictory preferences gets a recommendation that's arguably "wrong" on the dimension they'd notice most (how energetic the song actually feels).
 
 ---
 

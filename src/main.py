@@ -16,20 +16,46 @@ def main() -> None:
     songs = load_songs("data/songs.csv")
     print(f"Loaded songs: {len(songs)}")
 
-    # Two contrasting taste profiles: the target features score_song() compares
-    # each song against. Running both side by side shows whether genre/mood
+    # Baseline taste profiles: the target features score_song() compares each
+    # song against. Running several side by side shows whether genre/mood
     # matching actually shifts the ranking, instead of energy doing all the work.
     profiles = {
-        "Upbeat pop listener": {
+        "High-Energy Pop": {
             "genre": "pop",
             "mood": "happy",
-            "energy": 0.8,
+            "energy": 0.9,
             "likes_acoustic": False,
         },
-        "Chill lofi listener": {
+        "Chill Lofi": {
             "genre": "lofi",
             "mood": "chill",
-            "energy": 0.35,
+            "energy": 0.3,
+            "likes_acoustic": True,
+        },
+        "Deep Intense Rock": {
+            "genre": "rock",
+            "mood": "intense",
+            "energy": 0.95,
+            "likes_acoustic": False,
+        },
+        # Edge case: mood "sad" does not exist anywhere in the catalog, and it's
+        # paired with a high target energy - a contradictory, "hyped but sad"
+        # request. Checks that an unmatched mood degrades gracefully to
+        # genre + energy scoring instead of breaking.
+        "Edge Case: Energetic but Sad": {
+            "genre": "pop",
+            "mood": "sad",
+            "energy": 0.9,
+            "likes_acoustic": False,
+        },
+        # Edge case: likes_acoustic=True combined with a near-max target energy.
+        # In this catalog, energy and acousticness are almost perfectly inversely
+        # correlated, so no song can satisfy both - checks whether the acoustic
+        # bonus and energy-similarity terms fight each other in a sensible way.
+        "Edge Case: Acoustic Speed Paradox": {
+            "genre": "folk",
+            "mood": "chill",
+            "energy": 0.95,
             "likes_acoustic": True,
         },
     }
