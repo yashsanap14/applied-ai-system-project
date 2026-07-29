@@ -3,10 +3,10 @@ VibeCheck — Streamlit UI over the content-based recommender, with an optional
 RAG "AI Vibe Summary" layer.
 
 The deterministic scorer (src/recommender.py) retrieves and ranks songs. When an
-API key is available and AI summaries are on, Claude rewrites each song's score
-reasons into a friendly one-liner, grounded strictly in the retrieved songs
-(src/vibe_summary.py). With no key — or on any AI failure — the app falls back to
-the rule-based reasons, so it always works.
+HF token is available and AI summaries are on, a Gemma model (served via the
+Hugging Face router) rewrites each song's score reasons into a friendly one-liner,
+grounded strictly in the retrieved songs (src/vibe_summary.py). With no token — or
+on any AI failure — the app falls back to the rule-based reasons, so it always works.
 
 Run from the repo root:
     streamlit run streamlit_app.py
@@ -20,10 +20,10 @@ from dotenv import load_dotenv
 from src.recommender import load_songs, recommend_songs
 from src.vibe_summary import MODEL, generate_blurbs
 
-load_dotenv()  # load ANTHROPIC_API_KEY from a .env file if present
+load_dotenv()  # load HF_TOKEN from a .env file if present
 
 DATA_PATH = "data/songs.csv"
-KEY_PRESENT = bool(os.environ.get("ANTHROPIC_API_KEY"))
+KEY_PRESENT = bool(os.environ.get("HF_TOKEN"))
 
 
 @st.cache_data
@@ -54,8 +54,8 @@ with st.sidebar:
     use_ai = st.checkbox(
         "✨ Use AI summaries",
         value=KEY_PRESENT,
-        help="Rewrite each song's score reasons into a friendly one-liner with Claude. "
-        "Falls back to the rule-based reasons if no API key is set.",
+        help="Rewrite each song's score reasons into a friendly one-liner with a Gemma "
+        "model via Hugging Face. Falls back to the rule-based reasons if no HF token is set.",
     )
 
 user_prefs = {
@@ -84,7 +84,7 @@ elif blurbs is not None:
     st.caption(f"✨ AI summaries on ({MODEL}), grounded to the retrieved songs.")
 elif not KEY_PRESENT:
     st.caption(
-        "🔑 No API key found — showing rule-based reasons. Set `ANTHROPIC_API_KEY` "
+        "🔑 No HF token found — showing rule-based reasons. Set `HF_TOKEN` "
         "(or add a `.env` file) to enable AI summaries."
     )
 else:

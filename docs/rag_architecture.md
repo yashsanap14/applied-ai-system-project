@@ -32,7 +32,7 @@ flowchart TD
     %% ---------- Generation Layer ----------
     subgraph GEN["🤖 Generation Layer — new"]
         G1["Prompt builder<br/>inject ONLY retrieved songs<br/>+ ask for a grounded summary"]
-        G2["Claude LLM<br/>claude-haiku-4-5 / claude-sonnet-5"]
+        G2["Gemma 4 LLM<br/>google/gemma-4-31B-it via Hugging Face router"]
         G3["Draft AI vibe summary"]
     end
 
@@ -75,7 +75,7 @@ flowchart TD
 | **Knowledge Base** — `songs.csv` | exists | The retrieval corpus. The LLM may only reference these 20 songs. |
 | **Retrieval Layer** — `score_song` / `recommend_songs` | exists | Ranks the catalog against the profile, returns top-k + score reasons. The "R" in RAG. |
 | **Prompt builder** | new | Injects only the retrieved songs + scores into the prompt. Grounding = no hallucination. |
-| **Claude LLM** | new | Generates the natural-language "why these fit your vibe" summary. |
+| **Gemma 4 LLM** | new | Generates the natural-language "why these fit your vibe" summary (served via the Hugging Face router, OpenAI-compatible API). |
 | **Verification & QA** | new | Three checkpoints (below). |
 
 ## Where AI results get checked

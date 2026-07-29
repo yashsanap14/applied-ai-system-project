@@ -1,7 +1,8 @@
 """Tests for the RAG vibe-summary generation layer (src/vibe_summary.py).
 
-All tests are deterministic and run without an API key: the Anthropic client is
-injected as a fake, matching the graceful-degradation design.
+All tests are deterministic and run without a token: the LLM client is injected
+as a fake using the OpenAI-compatible response shape, matching the
+graceful-degradation design. No live call to Hugging Face is made.
 """
 
 import json
@@ -11,21 +12,26 @@ from src.vibe_summary import build_prompt, check_grounding, generate_blurbs
 
 
 class FakeClient:
-    """Stand-in for anthropic.Anthropic. Returns a canned text block, or raises."""
+    """Stand-in for openai.OpenAI(base_url=..hf-router..). Returns a canned
+    chat-completion, or raises. Mirrors client.chat.completions.create(...) and
+    the completion.choices[0].message.content access path."""
 
-    def __init__(self, text=None, exc=None):
-        self._text = text
+    def __init__(self, content=None, exc=None):
+        self._content = content
         self._exc = exc
-        self.messages = SimpleNamespace(create=self._create)
+        self.chat = SimpleNamespace(
+            completions=SimpleNamespace(create=self._create)
+        )
 
     def _create(self, **kwargs):
         if self._exc is not None:
             raise self._exc
-        return SimpleNamespace(content=[SimpleNamespace(type="text", text=self._text)])
+        message = SimpleNamespace(content=self._content)
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
 
 def summaries_json(items):
-    """Build the structured-output JSON string the model is asked to return."""
+    """Build the JSON string the model is prompted to return."""
     return json.dumps({"summaries": [{"id": i, "blurb": b} for i, b in items]})
 
 
@@ -91,17 +97,34 @@ def test_build_prompt_instructs_grounding():
     assert "do not" in prompt or "don't" in prompt
 
 
+def test_build_prompt_specifies_json_output():
+    # We coax structured output via the prompt (no response_format), so the
+    # prompt must describe the exact JSON shape.
+    prompt = build_prompt(make_retrieved()).lower()
+    assert "json" in prompt
+    assert "summaries" in prompt
+
+
 # --- generate_blurbs -------------------------------------------------------
 
 def test_generate_blurbs_returns_dict_on_grounded_response():
     retrieved = make_retrieved()
-    text = summaries_json([(1, "Rainy lofi that matches your chill mood."),
-                           (2, "More lofi to code to.")])
-    result = generate_blurbs(retrieved, client=FakeClient(text=text))
+    content = summaries_json([(1, "Rainy lofi that matches your chill mood."),
+                              (2, "More lofi to code to.")])
+    result = generate_blurbs(retrieved, client=FakeClient(content=content))
     assert result == {
         1: "Rainy lofi that matches your chill mood.",
         2: "More lofi to code to.",
     }
+
+
+def test_generate_blurbs_parses_json_wrapped_in_markdown_fences():
+    # Gemma often wraps JSON in ```json ... ``` fences; defensive parsing must handle it.
+    retrieved = make_retrieved()
+    inner = summaries_json([(1, "Rainy lofi."), (2, "Code lofi.")])
+    content = f"Sure! Here you go:\n```json\n{inner}\n```"
+    result = generate_blurbs(retrieved, client=FakeClient(content=content))
+    assert result == {1: "Rainy lofi.", 2: "Code lofi."}
 
 
 def test_generate_blurbs_returns_none_on_api_error():
@@ -113,6 +136,12 @@ def test_generate_blurbs_returns_none_on_api_error():
 def test_generate_blurbs_returns_none_on_ungrounded_response():
     retrieved = make_retrieved()
     # id 99 was never retrieved — grounding must reject the whole response.
-    text = summaries_json([(1, "ok"), (99, "a hallucinated song")])
-    result = generate_blurbs(retrieved, client=FakeClient(text=text))
+    content = summaries_json([(1, "ok"), (99, "a hallucinated song")])
+    result = generate_blurbs(retrieved, client=FakeClient(content=content))
+    assert result is None
+
+
+def test_generate_blurbs_returns_none_on_unparseable_content():
+    retrieved = make_retrieved()
+    result = generate_blurbs(retrieved, client=FakeClient(content="no json here, sorry"))
     assert result is None

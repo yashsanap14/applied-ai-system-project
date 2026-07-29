@@ -4,6 +4,24 @@
 **Status:** Approved (design), pending implementation
 **Feature branch:** `rag-vibe-summary`
 
+> **Amendment (2026-07-29): provider switched to Gemma 4 via Hugging Face.**
+> The original design used the Anthropic SDK with `claude-haiku-4-5`. The
+> generation provider was later switched to **`google/gemma-4-31B-it:novita`**
+> served through the **Hugging Face router** (`https://router.huggingface.co/v1`)
+> using the **OpenAI-compatible client** (`openai` package). Only the model
+> integration changed — the retrieval → generation → grounding → fallback logic,
+> the grounding rule, and the test structure are unchanged. Concrete deltas vs.
+> the sections below:
+> - **Model:** `google/gemma-4-31B-it:novita` (not `claude-haiku-4-5`).
+> - **Client/call:** `OpenAI(base_url=..., api_key=os.environ["HF_TOKEN"])` →
+>   `client.chat.completions.create(...)`; parse `choices[0].message.content`.
+> - **Env var / dependency:** `HF_TOKEN` (not `ANTHROPIC_API_KEY`); `openai`
+>   (not `anthropic`) in `requirements.txt`.
+> - **Structured output:** the HF router may not enforce a JSON schema, so the
+>   JSON shape is requested in the prompt and parsed defensively (first `{` to
+>   last `}`, tolerating markdown fences). The grounding check remains the real
+>   guardrail. No `response_format` param is sent.
+
 ## Summary
 
 Add a Retrieval-Augmented Generation (RAG) layer to VibeCheck. The existing
