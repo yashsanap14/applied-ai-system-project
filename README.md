@@ -2,11 +2,13 @@
 
 ## Project Summary
 
-This is **VibeCheck 1.0**, a small content-based music recommender.
+This is **VibeCheck**, a small content-based music recommender with an optional **RAG ("AI Vibe Summary") layer** on top.
 
 You give it a taste profile — favorite genre, favorite mood, target energy, and whether you like acoustic sound — and it compares that against a 20-song catalog. Every song gets a score using a simple point system: genre match (+2.0), mood match (+1.0), energy closeness (up to +1.0), and an acoustic bonus (+0.5). It returns the top 5 highest-scoring songs, each with a plain-language list of reasons for why it scored what it did.
 
 I tested it against several taste profiles, including two deliberately contradictory ones, to see how it handles edge cases — and used those tests to find a real bias: songs in rare genres can outrank a much better energy match just by matching genre. The full writeup of the algorithm, evaluation, and limitations is in [`model_card.md`](model_card.md).
+
+As a stretch feature, the app can optionally rewrite each song's score reasons into a friendly one-liner using a Gemma model served via Hugging Face — see [AI Vibe Summary (RAG Stretch Feature)](#ai-vibe-summary-rag-stretch-feature) below.
 
 ---
 
@@ -34,6 +36,37 @@ That gives a maximum possible score of **4.5**. `recommend_songs` sorts every so
 
 ---
 
+## AI Vibe Summary (RAG Stretch Feature)
+
+The stretch feature adds a **Retrieval-Augmented Generation (RAG)** layer on top of the recommender, available in the Streamlit app (`streamlit_app.py`). The key idea: the content-based scorer above **is** the retrieval half of RAG — it already picks the most relevant songs and explains why. The new layer is the *generation* half: an LLM rewrites each retrieved song's score reasons into one friendly, natural-language sentence.
+
+**Architecture** — see [`docs/rag_architecture.md`](docs/rag_architecture.md) for the full Mermaid diagram, and [`docs/superpowers/specs/2026-07-29-rag-vibe-summary-design.md`](docs/superpowers/specs/2026-07-29-rag-vibe-summary-design.md) for the design spec (including the amendment documenting the provider switch below).
+
+| Component | Implementation |
+|---|---|
+| Retrieval | `src/recommender.py` (unchanged) — top-k songs + score reasons |
+| Generation | `src/vibe_summary.py` — calls an LLM to rewrite each song's reasons as a one-liner |
+| Model | `google/gemma-4-31B-it:novita`, served through the **Hugging Face Inference Router** (`https://router.huggingface.co/v1`) via the OpenAI-compatible client (`openai` package) |
+| Grounding check | Every generated blurb must be keyed to a song `id` that was actually retrieved, and every retrieved song must get exactly one non-empty blurb. Fails either rule → the AI output is discarded. |
+| Fallback | If there's no `HF_TOKEN`, the API call fails, the response can't be parsed, or grounding fails — the app **falls back to the rule-based score reasons** shown above. The app never crashes and is fully usable with no token. |
+
+**Why grounding, not fact-checking:** the check doesn't verify that each *sentence* is factually accurate — that's unreliable to automate. Instead it verifies the model didn't hallucinate a song that was never retrieved and didn't skip any retrieved song. This is a deliberate, demonstrable trade-off (see [Limitations and Risks](#limitations-and-risks)).
+
+### Enabling it
+
+1. Get a Hugging Face access token (huggingface.co → Settings → Access Tokens — a "Read" token is enough).
+2. Create a `.env` file in the project root (already gitignored):
+
+   ```bash
+   echo 'HF_TOKEN=hf_your_token_here' > .env
+   ```
+
+3. Run the Streamlit app (see [Getting Started](#getting-started) below) and toggle **"Use AI summaries"** in the sidebar.
+
+With no `HF_TOKEN` set, the toggle still works — the app just shows a caption explaining it fell back to rule-based reasons.
+
+---
+
 ## Getting Started
 
 ### Setup
@@ -44,28 +77,39 @@ That gives a maximum possible score of **4.5**. `recommend_songs` sorts every so
    python -m venv .venv
    source .venv/bin/activate      # Mac or Linux
    .venv\Scripts\activate         # Windows
+   ```
 
-2. Install dependencies
+2. Install dependencies:
 
-```bash
-pip install -r requirements.txt
-```
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Run the app:
+3. Run the app — two ways:
 
-```bash
-python -m src.main
-```
+   **CLI** (core recommender only, no AI summaries):
+
+   ```bash
+   python -m src.main
+   ```
+
+   **Streamlit** (interactive UI, with the optional AI Vibe Summary layer):
+
+   ```bash
+   streamlit run streamlit_app.py
+   ```
+
+   The Streamlit app works with no setup — it defaults to rule-based reasons. To enable AI-generated summaries, add an `HF_TOKEN` first (see [AI Vibe Summary](#ai-vibe-summary-rag-stretch-feature) above).
 
 ### Running Tests
 
-Run the starter tests with:
+Run the full test suite with:
 
 ```bash
 pytest
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+This covers both the core recommender (`tests/test_recommender.py`) and the RAG generation layer (`tests/test_vibe_summary.py`). The RAG tests are fully deterministic and require **no** Hugging Face token or network access — the LLM client is injected as a fake, so `check_grounding`, `build_prompt`, and the success/error/fallback paths of `generate_blurbs` are all exercised offline.
 
 ---
 
@@ -132,6 +176,16 @@ Chill lofi listener: {'genre': 'lofi', 'mood': 'chill', 'energy': 0.35, 'likes_a
 ```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or demo video link here -->
+
+### Sample AI Vibe Summary Output
+
+With `HF_TOKEN` set and AI summaries toggled on, a live run against `{genre: pop, mood: happy, energy: 0.8, likes_acoustic: False}` produced these grounded one-liners (each keyed to the retrieved song's id, verified against the score reasons above — no hallucinated songs):
+
+```
+Sunrise City   -> "You'll love this happy pop track with an energy level that perfectly matches your vibe."
+Gym Hero       -> "This pop song is a great fit since its energy aligns so well with what you enjoy."
+Rooftop Lights -> "This one fits your mood with its happy feel and a very similar energy level."
+```
 
 ---
 
@@ -282,13 +336,17 @@ Edge Case: Acoustic Speed Paradox: {'genre': 'folk', 'mood': 'chill', 'energy': 
 
 ## Limitations and Risks
 
-Summarize some limitations of your recommender.
+**Core recommender:**
 
-Examples:
+- It only works on a tiny (20-song) catalog.
+- It does not understand lyrics or language.
+- It might over-favor genre matches over mood/energy fit (see the bias discussed above and in the edge-case experiments below).
 
-- It only works on a tiny catalog
-- It does not understand lyrics or language
-- It might over favor one genre or mood
+**AI Vibe Summary (RAG layer):**
+
+- Grounding checks that the model didn't hallucinate a song and covered every retrieved song — it does **not** verify that each generated sentence is factually precise about a song's attributes. A blurb could still be a bit generic or slightly off in a way the grounding check can't catch.
+- Depends on a third-party model (`google/gemma-4-31B-it` via the Hugging Face router); if the provider is slow, rate-limited, or returns malformed output, the app silently falls back to rule-based reasons rather than showing an error — good for reliability, but it means "no AI summary" and "provider hiccup" look identical to the user.
+- No conversation memory — each recommendation request is a single, independent call; the model has no context beyond the songs retrieved for that one request.
 
 You will go deeper on this in your model card.
 
