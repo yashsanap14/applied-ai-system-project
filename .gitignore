@@ -11,5 +11,9 @@ venv/
 # OS files
 .DS_Store
 
+# Environment variables (API keys)
+.env
+.env.*
+
 # Pytest cache
 .pytest_cache/
